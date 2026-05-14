@@ -1,20 +1,22 @@
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import Dashboard  from './pages/Dashboard.jsx'
-import LiveFeed   from './pages/LiveFeed.jsx'
-import BannedList from './pages/BannedList.jsx'
-import Enroll     from './pages/Enroll.jsx'
-import AlertLog   from './pages/AlertLog.jsx'
-import Admin      from './pages/Admin.jsx'
+import Dashboard   from './pages/Dashboard.jsx'
+import LiveFeed    from './pages/LiveFeed.jsx'
+import BannedList  from './pages/BannedList.jsx'
+import AllowedList from './pages/AllowedList.jsx'
+import Enroll      from './pages/Enroll.jsx'
+import AlertLog    from './pages/AlertLog.jsx'
+import Admin       from './pages/Admin.jsx'
 import { api } from './api.js'
 
 const NAV = [
-  { path: '/',       label: 'Dashboard',   short: 'F1' },
-  { path: '/feed',   label: 'Live Feed',   short: 'F2' },
-  { path: '/banned', label: 'Banned List', short: 'F3' },
-  { path: '/enroll', label: 'Enroll',      short: 'F4' },
-  { path: '/logs',   label: 'Alert Log',   short: 'F5' },
-  { path: '/admin',  label: 'Admin',       short: 'F6', admin: true },
+  { path: '/',        label: 'Dashboard',   short: 'F1' },
+  { path: '/feed',    label: 'Live Feed',   short: 'F2' },
+  { path: '/banned',  label: 'Banned List', short: 'F3' },
+  { path: '/allowed', label: 'Access List', short: 'F4' },
+  { path: '/enroll',  label: 'Enroll',      short: 'F5' },
+  { path: '/logs',    label: 'Alert Log',   short: 'F6' },
+  { path: '/admin',   label: 'Admin',       short: 'F7', admin: true },
 ]
 
 function useUptime() {
@@ -114,9 +116,21 @@ function Sidebar({ stats, theme, onThemeToggle }) {
           <span className="sys-val">{clock}</span>
         </div>
         <div className="sys-row">
+          <span className="sys-label">Mode</span>
+          <span className="sys-val" style={{ fontSize: 9, letterSpacing: '0.08em' }}>
+            {(stats?.detection_mode || 'BANNED_ONLY').replace('_', ' ')}
+          </span>
+        </div>
+        <div className="sys-row">
           <span className="sys-label">Banned</span>
           <span className="sys-val" style={{ color: stats?.banned_count > 0 ? 'var(--red)' : 'var(--text-mid)' }}>
             {stats?.banned_count ?? '—'}
+          </span>
+        </div>
+        <div className="sys-row">
+          <span className="sys-label">Allowed</span>
+          <span className="sys-val" style={{ color: stats?.allowed_count > 0 ? 'var(--green)' : 'var(--text-mid)' }}>
+            {stats?.allowed_count ?? '—'}
           </span>
         </div>
         <div className="sys-row">
@@ -185,6 +199,7 @@ function AppShell() {
           <Route path="/feed"   element={<LiveFeed />} />
           <Route path="/banned" element={<BannedList />} />
           <Route path="/enroll" element={<Enroll />} />
+          <Route path="/allowed" element={<AllowedList />} />
           <Route path="/logs"   element={<AlertLog />} />
           <Route path="/admin"  element={<Admin />} />
         </Routes>

@@ -105,10 +105,11 @@ async def change_password(body: ChangePasswordBody, token: str = Depends(require
 
 
 @app.delete("/api/admin/logs")
-async def admin_clear_logs(token: str = Depends(require_admin)):
-    """Wipe the entire detection log. Irreversible."""
-    db.clear_detection_log()
-    return {"ok": True, "message": "Detection log cleared"}
+async def admin_clear_logs(log_type: str = None, token: str = Depends(require_admin)):
+    """Wipe all logs or only logs of a specific type."""
+    db.clear_detection_log(log_type=log_type or None)
+    label = f"{log_type} log" if log_type else "full detection log"
+    return {"ok": True, "message": f"{label} cleared"}
 
 
 @app.delete("/api/admin/snapshots")
@@ -147,19 +148,26 @@ ALERT_COOLDOWN = 10.0   # seconds between re-logging the same banned face
 class CameraState:
     def __init__(self):
         self.cap          = None
-        self.cap_lock     = threading.Lock()       # guards cap.read() calls
+        self.cap_lock     = threading.Lock()
         self.active       = False
         self.threshold    = 0.45
         self.model_ready  = False
         self.camera_id    = 0
-        self.alert_times: dict[int, float] = {}
 
-        # Latest raw frame — written by capture loop, read by stream + detection
+        # Detection mode: 'BANNED_ONLY' | 'ALLOWLIST_ONLY' | 'COMBINED'
+        self.mode         = db.get_detection_mode() if hasattr(db, 'get_detection_mode') else 'BANNED_ONLY'
+
+        # Cooldown trackers
+        self.alert_times:         dict[int, float]   = {}   # banned face_id → last alert time
+        self.known_entry_times:   dict[int, float]   = {}   # allowed face_id → last log time
+        self.unauthorized_times:  dict[tuple, float] = {}   # bbox_key → last alert time
+
+        # Latest raw frame
         self.latest_frame: np.ndarray | None = None
-        self.frame_lock   = threading.Lock()       # guards latest_frame
+        self.frame_lock   = threading.Lock()
 
-        # Latest detection results — written by detection thread, read by stream
-        self.last_faces: list = []                 # [{bbox, label, color}, ...]
+        # Latest detection results
+        self.last_faces: list = []
         self.faces_lock   = threading.Lock()
 
 cam_state = CameraState()
@@ -211,13 +219,28 @@ def _save_snapshot(frame: np.ndarray, label: str) -> str:
     return path
 
 
+def _bbox_key(x1, y1, x2, y2):
+    """Round bbox to 50-px grid — used as cooldown key for unauthorized faces."""
+    return (x1 // 50, y1 // 50, x2 // 50, y2 // 50)
+
+
+# Box colours per log type (BGR)
+_COLORS = {
+    "BANNED_ALERT":  (0,   0,   220),   # red
+    "UNAUTHORIZED":  (0,   120, 255),   # orange
+    "KNOWN_ENTRY":   (0,   200, 0  ),   # green
+    "UNKNOWN":       (0,   200, 0  ),   # green (dim, no threat)
+}
+
+
 def _detection_loop():
     """
-    Dedicated thread: runs InsightFace on the latest frame continuously.
-    Writes results to cam_state.last_faces so the stream thread can draw
-    boxes without ever waiting for detection to finish.
+    Runs InsightFace on the latest frame in a dedicated thread.
+    Handles BANNED_ONLY, ALLOWLIST_ONLY, and COMBINED detection modes.
+    Writes annotated face data to cam_state.last_faces for the stream thread.
     """
-    banned_cache: list = []
+    banned_cache:  list = []
+    allowed_cache: list = []
     last_cache_reload = 0.0
 
     while cam_state.active:
@@ -230,11 +253,13 @@ def _detection_loop():
             time.sleep(0.05)
             continue
 
-        now = time.time()
+        now  = time.time()
+        mode = cam_state.mode
 
-        # Reload banned list every 30 s to pick up new enrollments
+        # Reload face caches every 30 s
         if now - last_cache_reload > 30.0:
-            banned_cache = db.get_banned_embeddings()
+            banned_cache  = db.get_banned_embeddings()
+            allowed_cache = db.get_allowed_embeddings()
             last_cache_reload = now
 
         try:
@@ -244,34 +269,91 @@ def _detection_loop():
             for face in raw_faces:
                 if face["det_score"] < 0.5:
                     continue
-                match = matcher.match_against_banned(
-                    face["embedding"], banned_cache, cam_state.threshold
-                )
+
                 x1, y1, x2, y2 = [int(v) for v in face["bbox"]]
+                emb = face["embedding"]
 
-                if match:
-                    label = f"BANNED: {match['name']} ({match['similarity']:.2f})"
-                    color = (0, 0, 220)
+                banned_match  = None
+                allowed_match = None
 
-                    face_id     = match["id"]
-                    last_alerted = cam_state.alert_times.get(face_id, 0.0)
-                    if now - last_alerted >= ALERT_COOLDOWN:
+                if mode in ("BANNED_ONLY", "COMBINED"):
+                    banned_match = matcher.match_against_banned(
+                        emb, banned_cache, cam_state.threshold)
+
+                if mode in ("ALLOWLIST_ONLY", "COMBINED"):
+                    allowed_match = matcher.match_against_banned(
+                        emb, allowed_cache, cam_state.threshold)
+
+                # ── Classify face ──────────────────────────────────────
+                if banned_match and mode in ("BANNED_ONLY", "COMBINED"):
+                    log_type = "BANNED_ALERT"
+                    label    = f"BANNED: {banned_match['name']} ({banned_match['similarity']:.2f})"
+                    face_id  = banned_match["id"]
+
+                    if now - cam_state.alert_times.get(face_id, 0.0) >= ALERT_COOLDOWN:
                         cam_state.alert_times[face_id] = now
-                        snap_path = _save_snapshot(frame, match["name"])
+                        snap_path = _save_snapshot(frame, f"BANNED_{banned_match['name']}")
                         db.log_detection(
                             matched_id=face_id,
-                            matched_name=match["name"],
-                            similarity=match["similarity"],
+                            matched_name=banned_match["name"],
+                            similarity=banned_match["similarity"],
                             snapshot_path=snap_path,
                             camera_id=f"cam{cam_state.camera_id}",
+                            log_type="BANNED_ALERT",
+                            detection_mode=mode,
                         )
-                        print(f"[GateKeep] ALERT — {match['name']} "
-                              f"({match['similarity']:.3f}) — {snap_path}")
-                else:
-                    label = f"Unknown ({face['det_score']:.2f})"
-                    color = (0, 200, 0)
+                        print(f"[GateKeep] BANNED_ALERT — {banned_match['name']} "
+                              f"({banned_match['similarity']:.3f})")
 
-                new_faces.append({"bbox": (x1, y1, x2, y2), "label": label, "color": color})
+                elif allowed_match and mode in ("ALLOWLIST_ONLY", "COMBINED"):
+                    log_type = "KNOWN_ENTRY"
+                    label    = f"ALLOWED: {allowed_match['name']} ({allowed_match['similarity']:.2f})"
+                    face_id  = allowed_match["id"]
+
+                    if now - cam_state.known_entry_times.get(face_id, 0.0) >= ALERT_COOLDOWN:
+                        cam_state.known_entry_times[face_id] = now
+                        db.log_detection(
+                            matched_id=face_id,
+                            matched_name=allowed_match["name"],
+                            similarity=allowed_match["similarity"],
+                            snapshot_path="",
+                            camera_id=f"cam{cam_state.camera_id}",
+                            log_type="KNOWN_ENTRY",
+                            detection_mode=mode,
+                        )
+                        print(f"[GateKeep] KNOWN_ENTRY — {allowed_match['name']}")
+
+                elif mode in ("ALLOWLIST_ONLY", "COMBINED"):
+                    # Not banned, not allowed → unauthorized
+                    log_type  = "UNAUTHORIZED"
+                    label     = f"UNAUTHORIZED ({face['det_score']:.2f})"
+                    bbox_key  = _bbox_key(x1, y1, x2, y2)
+
+                    if now - cam_state.unauthorized_times.get(bbox_key, 0.0) >= ALERT_COOLDOWN:
+                        cam_state.unauthorized_times[bbox_key] = now
+                        snap_path = _save_snapshot(frame, "UNAUTHORIZED")
+                        db.log_detection(
+                            matched_id=None,
+                            matched_name="",
+                            similarity=0.0,
+                            snapshot_path=snap_path,
+                            camera_id=f"cam{cam_state.camera_id}",
+                            log_type="UNAUTHORIZED",
+                            detection_mode=mode,
+                        )
+                        print(f"[GateKeep] UNAUTHORIZED face detected")
+
+                else:
+                    # BANNED_ONLY with no banned match
+                    log_type = "UNKNOWN"
+                    label    = f"Unknown ({face['det_score']:.2f})"
+
+                new_faces.append({
+                    "bbox":     (x1, y1, x2, y2),
+                    "label":    label,
+                    "color":    _COLORS.get(log_type, (0, 200, 0)),
+                    "log_type": log_type,
+                })
 
             with cam_state.faces_lock:
                 cam_state.last_faces = new_faces
@@ -279,7 +361,6 @@ def _detection_loop():
         except Exception as e:
             print(f"[GateKeep] Detection error: {e}")
 
-        # Brief pause so detection doesn't peg the CPU at 100 %
         time.sleep(0.05)
 
 
@@ -352,11 +433,13 @@ def start_camera(body: CameraStartBody):
         # Lower resolution = less data to process and encode each frame
         cap.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        cam_state.cap         = cap
-        cam_state.active      = True
-        cam_state.threshold   = body.threshold
-        cam_state.camera_id   = body.camera_id
-        cam_state.alert_times = {}
+        cam_state.cap                 = cap
+        cam_state.active              = True
+        cam_state.threshold           = body.threshold
+        cam_state.camera_id           = body.camera_id
+        cam_state.alert_times         = {}
+        cam_state.known_entry_times   = {}
+        cam_state.unauthorized_times  = {}
 
     with cam_state.faces_lock:
         cam_state.last_faces = []
@@ -418,10 +501,49 @@ def delete_banned(face_id: int):
 
 # ── ENROLL ────────────────────────────────────────────────────────────────────
 
+@app.get("/api/allowed")
+def get_allowed():
+    faces = db.get_all_allowed_faces()
+    return [{k: v for k, v in f.items() if k != "embedding"} for f in faces]
+
+
+@app.delete("/api/allowed/{face_id}")
+def delete_allowed(face_id: int):
+    face = db.get_allowed_face_by_id(face_id)
+    if not face:
+        raise HTTPException(status_code=404, detail="Face not found")
+    db.delete_allowed_face(face_id)
+    return {"deleted": True, "name": face["name"]}
+
+
+class SetModeBody(BaseModel):
+    mode: str
+
+
+@app.get("/api/mode")
+def get_mode():
+    return {"mode": cam_state.mode}
+
+
+@app.post("/api/mode")
+async def set_mode(body: SetModeBody, token: str = Depends(require_admin)):
+    valid = {"BANNED_ONLY", "ALLOWLIST_ONLY", "COMBINED"}
+    if body.mode not in valid:
+        raise HTTPException(status_code=400, detail=f"Mode must be one of {valid}")
+    cam_state.mode = body.mode
+    db.set_detection_mode(body.mode)
+    # Reset all cooldown timers when switching modes
+    cam_state.alert_times        = {}
+    cam_state.known_entry_times  = {}
+    cam_state.unauthorized_times = {}
+    return {"mode": cam_state.mode}
+
+
 @app.post("/api/enroll", status_code=201)
 async def enroll_face(
     name: str = Form(...),
     notes: str = Form(default=""),
+    list_type: str = Form(default="banned"),   # "banned" | "allowed"
     image: UploadFile = File(...)
 ):
     if not name.strip():
@@ -443,23 +565,31 @@ async def enroll_face(
     embedding = best_face["embedding"]
 
     # Save reference image
-    snap_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "snapshots", "enroll")
+    target = list_type.lower() if list_type.lower() in ("banned", "allowed") else "banned"
+    snap_dir = os.path.abspath(
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "snapshots", "enroll", target)
+    )
     os.makedirs(snap_dir, exist_ok=True)
     safe_name = name.strip().replace(" ", "_")
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     save_path = os.path.join(snap_dir, f"{ts}_{safe_name}.jpg")
     cv2.imwrite(save_path, frame)
 
-    face_id = db.add_banned_face(
-        name=name.strip(),
-        embedding=embedding,
-        notes=notes.strip(),
-        image_path=save_path,
-    )
+    if target == "allowed":
+        face_id = db.add_allowed_face(
+            name=name.strip(), embedding=embedding,
+            notes=notes.strip(), image_path=save_path,
+        )
+    else:
+        face_id = db.add_banned_face(
+            name=name.strip(), embedding=embedding,
+            notes=notes.strip(), image_path=save_path,
+        )
 
     return {
-        "id": face_id,
-        "name": name.strip(),
+        "id":        face_id,
+        "name":      name.strip(),
+        "list_type": target,
         "det_score": round(best_face["det_score"], 3),
         "image_path": save_path,
     }
@@ -478,11 +608,20 @@ def _add_snapshot_url(log: dict) -> dict:
     return log
 
 
+LOG_TYPE_ALERTS = {"BANNED_ALERT", "UNAUTHORIZED"}
+
 @app.get("/api/logs")
-def get_logs(limit: int = 50, alerts_only: bool = False):
-    logs = db.get_recent_logs(limit=limit)
-    if alerts_only:
-        logs = [l for l in logs if l.get("matched_id") is not None]
+def get_logs(limit: int = 50, alerts_only: bool = False, log_type: str = None):
+    """
+    log_type filter: BANNED_ALERT | UNAUTHORIZED | KNOWN_ENTRY | UNKNOWN | alerts (banned+unauth)
+    alerts_only: shorthand for log_type=alerts
+    """
+    if log_type == "alerts" or alerts_only:
+        logs = db.get_recent_logs(limit=limit, log_types=list(LOG_TYPE_ALERTS))
+    elif log_type and log_type != "all":
+        logs = db.get_recent_logs(limit=limit, log_types=[log_type])
+    else:
+        logs = db.get_recent_logs(limit=limit)
     return [_add_snapshot_url(l) for l in logs]
 
 
@@ -551,33 +690,71 @@ def get_snapshot():
 
 def _realtime_threat() -> str:
     """
-    Threat level based on seconds since the last banned-face detection.
-    Resets to NOMINAL when no banned face has been seen for 10 minutes.
-    Non-banned faces never affect this.
+    Mode-aware real-time threat level.
+    BANNED_ONLY   — driven by banned face detections
+    ALLOWLIST_ONLY — driven by unauthorized entries
+    COMBINED       — banned takes priority; unauthorized contributes
     """
-    if not cam_state.active or not cam_state.alert_times:
+    if not cam_state.active:
         return "NOMINAL"
-    seconds_since = time.time() - max(cam_state.alert_times.values())
-    if seconds_since <= 10:   return "CRITICAL"
-    if seconds_since <= 60:   return "HIGH"
-    if seconds_since <= 600:  return "ELEVATED"
+
+    mode = cam_state.mode
+    now  = time.time()
+
+    banned_secs = None
+    if cam_state.alert_times:
+        banned_secs = now - max(cam_state.alert_times.values())
+
+    unauth_secs = None
+    if cam_state.unauthorized_times:
+        unauth_secs = now - max(cam_state.unauthorized_times.values())
+
+    if mode == "BANNED_ONLY":
+        if banned_secs is None:      return "NOMINAL"
+        if banned_secs <= 10:        return "CRITICAL"
+        if banned_secs <= 60:        return "HIGH"
+        if banned_secs <= 600:       return "ELEVATED"
+        return "NOMINAL"
+
+    if mode == "ALLOWLIST_ONLY":
+        if unauth_secs is None:      return "NOMINAL"
+        if unauth_secs <= 10:        return "HIGH"
+        if unauth_secs <= 120:       return "ELEVATED"
+        return "NOMINAL"
+
+    # COMBINED — banned takes priority
+    if banned_secs is not None:
+        if banned_secs <= 10:        return "CRITICAL"
+        if banned_secs <= 60:        return "HIGH"
+    if unauth_secs is not None:
+        if unauth_secs <= 10:        return "HIGH"
+        if unauth_secs <= 120:       return "ELEVATED"
+    if banned_secs is not None and banned_secs <= 600:
+        return "ELEVATED"
     return "NOMINAL"
 
 
 @app.get("/api/stats")
 def get_stats():
-    banned = db.get_all_banned_faces()
-    logs   = db.get_recent_logs(limit=500)
-    alerts = [l for l in logs if l.get("matched_id") is not None]
+    banned  = db.get_all_banned_faces()
+    allowed = db.get_all_allowed_faces()
+    logs    = db.get_recent_logs(limit=500)
 
     cutoff = (datetime.datetime.now() - datetime.timedelta(hours=24)).isoformat(timespec="seconds")
-    recent_alerts = [a for a in alerts if a.get("timestamp", "") >= cutoff]
+    recent = [l for l in logs if l.get("timestamp", "") >= cutoff]
+
+    def count_type(records, lt):
+        return sum(1 for l in records if l.get("log_type") == lt)
 
     return {
-        "banned_count":     len(banned),
-        "total_detections": len(logs),
-        "total_alerts":     len(alerts),
-        "alerts_last_24h":  len(recent_alerts),
-        "camera_active":    cam_state.active,
-        "current_threat":   _realtime_threat(),   # real-time, not historical
+        "banned_count":         len(banned),
+        "allowed_count":        len(allowed),
+        "detection_mode":       cam_state.mode,
+        "total_detections":     len(logs),
+        "total_alerts":         count_type(logs,   "BANNED_ALERT"),
+        "alerts_last_24h":      count_type(recent, "BANNED_ALERT"),
+        "unauthorized_last_24h": count_type(recent, "UNAUTHORIZED"),
+        "known_entries_last_24h": count_type(recent, "KNOWN_ENTRY"),
+        "camera_active":        cam_state.active,
+        "current_threat":       _realtime_threat(),
     }

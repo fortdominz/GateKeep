@@ -854,6 +854,13 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 }
 .badge-gray::before { background: var(--text-dim); }
 
+.badge-amber {
+  background: var(--amber-dim);
+  color: var(--amber);
+  border: 1px solid rgba(255,170,0,0.25);
+}
+.badge-amber::before { background: var(--amber); box-shadow: 0 0 4px var(--amber); }
+
 /* ── FORMS ──────────────────────────────────────────────────── */
 
 .form-group { margin-bottom: 18px; }

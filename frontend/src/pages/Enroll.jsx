@@ -3,6 +3,7 @@ import { useState, useRef } from 'react'
 export default function Enroll() {
   const [name, setName]         = useState('')
   const [notes, setNotes]       = useState('')
+  const [listType, setListType] = useState('banned')   // 'banned' | 'allowed'
   const [file, setFile]         = useState(null)
   const [preview, setPreview]   = useState(null)
   const [dragging, setDragging] = useState(false)
@@ -41,9 +42,10 @@ export default function Enroll() {
 
     try {
       const formData = new FormData()
-      formData.append('name',  name.trim())
-      formData.append('notes', notes.trim())
-      formData.append('image', file)
+      formData.append('name',      name.trim())
+      formData.append('notes',     notes.trim())
+      formData.append('list_type', listType)
+      formData.append('image',     file)
 
       const BASE = (import.meta.env.VITE_API_URL || '') + '/api'
       const res = await fetch(`${BASE}/enroll`, { method: 'POST', body: formData })
@@ -54,7 +56,8 @@ export default function Enroll() {
       }
 
       const data = await res.json()
-      setSuccess(`Subject "${data.name}" enrolled — ID #${String(data.id).padStart(4,'0')}  confidence ${(data.det_score * 100).toFixed(1)}%`)
+      const listLabel = data.list_type === 'allowed' ? 'Allowed List' : 'Banned List'
+      setSuccess(`"${data.name}" enrolled to ${listLabel} — ID #${String(data.id).padStart(4,'0')}  confidence ${(data.det_score * 100).toFixed(1)}%`)
       setName('')
       setNotes('')
       setFile(null)
@@ -101,6 +104,36 @@ export default function Enroll() {
                 placeholder="Incident reference, date, location..."
                 disabled={loading}
               />
+            </div>
+
+            <div className="form-group">
+              <label>Enroll To *</label>
+              <div style={{ display: 'flex', gap: 0, border: '1px solid var(--border)', overflow: 'hidden' }}>
+                {[
+                  { key: 'banned',  label: 'Banned List',   desc: 'Will trigger alerts',  color: 'var(--red)'   },
+                  { key: 'allowed', label: 'Allowed List',  desc: 'Authorized personnel', color: 'var(--green)' },
+                ].map(opt => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setListType(opt.key)}
+                    disabled={loading}
+                    style={{
+                      flex: 1, padding: '12px 16px', border: 'none',
+                      borderRight: '1px solid var(--border)',
+                      background: listType === opt.key ? `${opt.color}14` : 'none',
+                      borderBottom: listType === opt.key ? `2px solid ${opt.color}` : '2px solid transparent',
+                      color: listType === opt.key ? opt.color : 'var(--text-dim)',
+                      fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.14em',
+                      textTransform: 'uppercase', cursor: 'pointer', textAlign: 'left',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    <div style={{ fontWeight: 600 }}>{opt.label}</div>
+                    <div style={{ fontSize: 8, opacity: 0.7, marginTop: 2, letterSpacing: '0.08em' }}>{opt.desc}</div>
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="form-group">

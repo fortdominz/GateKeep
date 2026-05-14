@@ -58,9 +58,20 @@ export const api = {
   getBanned:    ()                  => get('/banned'),
   deleteBanned: (id)                => del(`/banned/${id}`),
 
-  // Detection logs
-  getLogs:      (limit = 50, alertsOnly = false) =>
-    get(`/logs?limit=${limit}&alerts_only=${alertsOnly}`),
+  // Allowed faces
+  getAllowed:    ()                  => get('/allowed'),
+  deleteAllowed: (id)               => del(`/allowed/${id}`),
+
+  // Detection mode
+  getMode:      ()                  => get('/mode'),
+
+  // Detection logs — log_type: 'all' | 'alerts' | 'BANNED_ALERT' | 'UNAUTHORIZED' | 'KNOWN_ENTRY' | 'UNKNOWN'
+  getLogs: (limit = 50, alertsOnly = false, logType = 'all') => {
+    const params = new URLSearchParams({ limit })
+    if (alertsOnly) params.set('alerts_only', 'true')
+    if (logType && logType !== 'all') params.set('log_type', logType)
+    return get(`/logs?${params}`)
+  },
 
   // Camera
   startCamera:  (camera_id = 0, threshold = 0.45) =>
@@ -89,7 +100,10 @@ export const api = {
     changePassword: (new_password) =>
       adminPost('/admin/change-password', { new_password }),
 
-    clearLogs: () => adminDel('/admin/logs'),
+    clearLogs: (logType = null) =>
+      adminDel(logType ? `/admin/logs?log_type=${logType}` : '/admin/logs'),
+
+    setMode: (mode) => adminPost('/mode', { mode }),
 
     wipeSnapshots: () => adminDel('/admin/snapshots'),
 

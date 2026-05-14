@@ -95,6 +95,96 @@ function useAlertSound(threatKey) {
   useEffect(() => () => stopCritical(), [stopCritical])
 }
 
+// ── Detection mode switcher ──────────────────────────────────
+
+const MODES = [
+  {
+    key:   'BANNED_ONLY',
+    label: 'Banned Watch',
+    short: 'Alerts on banned faces only',
+    color: '#ff2020',
+  },
+  {
+    key:   'ALLOWLIST_ONLY',
+    label: 'Access Control',
+    short: 'Alerts on unauthorized entry',
+    color: '#ffaa00',
+  },
+  {
+    key:   'COMBINED',
+    label: 'Combined',
+    short: 'Banned alerts + access control',
+    color: '#00e676',
+  },
+]
+
+function ModeBar({ currentMode }) {
+  const [switching, setSwitching] = useState(null)
+  const [msg,       setMsg]       = useState('')
+
+  async function switchMode(key) {
+    if (key === currentMode) return
+    setSwitching(key)
+    try {
+      await api.admin.setMode(key)
+      setMsg(`Mode set to ${key}`)
+    } catch (e) {
+      setMsg(e.message.includes('401') ? 'Log in to Admin to change mode' : '✗ ' + e.message)
+    } finally {
+      setSwitching(null)
+      setTimeout(() => setMsg(''), 3000)
+    }
+  }
+
+  const active = MODES.find(m => m.key === currentMode) || MODES[0]
+
+  return (
+    <div style={{
+      background: 'var(--surface)', border: '1px solid var(--border)',
+      padding: '14px 20px', marginBottom: 2,
+      display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+    }}>
+      <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.2em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+        Detection Mode
+      </span>
+
+      <div style={{ display: 'flex', gap: 4, flex: 1, flexWrap: 'wrap' }}>
+        {MODES.map(m => {
+          const isActive = m.key === currentMode
+          return (
+            <button
+              key={m.key}
+              onClick={() => switchMode(m.key)}
+              disabled={!!switching}
+              style={{
+                flex: 1,
+                background: isActive ? `${m.color}18` : 'none',
+                border: `1px solid ${isActive ? m.color : 'var(--border)'}`,
+                color: isActive ? m.color : 'var(--text-dim)',
+                fontFamily: 'var(--mono)',
+                fontSize: 10,
+                letterSpacing: '0.14em',
+                textTransform: 'uppercase',
+                padding: '8px 12px',
+                cursor: switching ? 'wait' : 'pointer',
+                transition: 'all 0.15s',
+                textAlign: 'center',
+                opacity: switching && switching !== m.key ? 0.4 : 1,
+              }}
+            >
+              {switching === m.key ? '...' : m.label}
+            </button>
+          )
+        })}
+      </div>
+
+      <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.1em', whiteSpace: 'nowrap' }}>
+        {msg || active.short}
+      </div>
+    </div>
+  )
+}
+
 // ── Threat level config ──────────────────────────────────────
 
 const THREAT_LEVELS = [
@@ -417,6 +507,9 @@ export default function Dashboard() {
 
       {error && <div className="error-msg">ERR: {error}</div>}
 
+      {/* Detection mode switcher */}
+      <ModeBar currentMode={stats?.detection_mode ?? 'BANNED_ONLY'} />
+
       {/* Threat level — real-time, resets when no banned face present */}
       <ThreatBar threatKey={threatKey} />
 
@@ -431,35 +524,40 @@ export default function Dashboard() {
         {/* Right: Readout column */}
         <div className="soc-readouts">
           <div className="readout-cell">
-            <div className="readout-label">Enrolled / Banned</div>
+            <div className="readout-label">Banned / Allowed</div>
             <div className={`readout-value${(stats?.banned_count ?? 0) > 0 ? ' red' : ''}`}>
               {stats?.banned_count ?? '—'}
+              <span style={{ fontSize: 14, color: 'var(--green)', marginLeft: 6 }}>
+                / {stats?.allowed_count ?? '—'}
+              </span>
             </div>
-            <div className="readout-sub">subjects on watchlist</div>
+            <div className="readout-sub">watchlist / access list</div>
           </div>
 
           <div className="readout-cell">
-            <div className="readout-label">Alerts / 24h</div>
-            <div className={`readout-value${(stats?.alerts_last_24h ?? 0) > 0 ? ' amber' : ' green'}`}>
+            <div className="readout-label">Banned Alerts / 24h</div>
+            <div className={`readout-value${(stats?.alerts_last_24h ?? 0) > 0 ? ' red' : ' green'}`}>
               {stats?.alerts_last_24h ?? '—'}
             </div>
-            <div className="readout-sub">match events fired</div>
+            <div className="readout-sub">banned face matches</div>
           </div>
 
           <div className="readout-cell">
-            <div className="readout-label">Total Detections</div>
-            <div className="readout-value">{stats?.total_detections ?? '—'}</div>
-            <div className="readout-sub">all-time face events</div>
+            <div className="readout-label">Unauthorized / 24h</div>
+            <div className={`readout-value${(stats?.unauthorized_last_24h ?? 0) > 0 ? ' amber' : ' green'}`}>
+              {stats?.unauthorized_last_24h ?? '—'}
+            </div>
+            <div className="readout-sub">unauthorized entries</div>
           </div>
 
           <div className="readout-cell" style={{ flex: 2 }}>
             <div className="readout-label">System Info</div>
             {[
-              ['Total Alerts',    stats?.total_alerts ?? '—'],
+              ['Mode',            stats?.detection_mode ?? '—'],
+              ['Known Entries/24h', stats?.known_entries_last_24h ?? '—'],
               ['Detection Model', 'buffalo_l'],
               ['Match Algorithm', 'Cosine Sim'],
               ['Storage',         'SQLite'],
-              ['Backend',         'FastAPI / Uvicorn'],
             ].map(([k, v]) => (
               <div key={k} className="info-row">
                 <span className="info-key">{k}</span>
