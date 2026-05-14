@@ -134,7 +134,7 @@ async def admin_set_threshold(body: ThresholdBody, token: str = Depends(require_
 
 
 # Serve snapshots as static files at /snapshots/alerts/<filename>
-SNAPSHOTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "snapshots")
+SNAPSHOTS_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "snapshots"))
 os.makedirs(SNAPSHOTS_DIR, exist_ok=True)
 app.mount("/snapshots", StaticFiles(directory=SNAPSHOTS_DIR), name="snapshots")
 
@@ -332,6 +332,9 @@ class CameraStartBody(BaseModel):
 @app.on_event("startup")
 def on_startup():
     """Pre-warm InsightFace on server start."""
+    import db as _db
+    print(f"[GateKeep] Database  : {_db.DB_PATH}")
+    print(f"[GateKeep] Snapshots : {SNAPSHOTS_DIR}")
     threading.Thread(target=_warm_model, daemon=True).start()
 
 

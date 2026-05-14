@@ -10,7 +10,8 @@ import datetime
 import hashlib
 import os
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "gatekeep.db")
+# Always resolve to an absolute path so the DB is found regardless of CWD
+DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "gatekeep.db"))
 
 
 def _conn():

@@ -1270,7 +1270,7 @@ body::after {
 
 .soc-main {
   display: grid;
-  grid-template-columns: 1fr 320px;
+  grid-template-columns: minmax(260px, 420px) 1fr;
   gap: 2px;
   margin-bottom: 2px;
 }
