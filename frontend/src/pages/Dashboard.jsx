@@ -119,24 +119,30 @@ const MODES = [
 ]
 
 function ModeBar({ currentMode }) {
-  const [switching, setSwitching] = useState(null)
-  const [msg,       setMsg]       = useState('')
+  const [localMode, setLocalMode] = useState(currentMode)
+  const [switching,  setSwitching] = useState(false)
+  const [msg,        setMsg]       = useState('')
+
+  // Keep localMode in sync when stats poll updates currentMode
+  useEffect(() => { setLocalMode(currentMode) }, [currentMode])
 
   async function switchMode(key) {
-    if (key === currentMode) return
-    setSwitching(key)
+    if (key === localMode || switching) return
+    setLocalMode(key)   // optimistic update
+    setSwitching(true)
     try {
       await api.admin.setMode(key)
-      setMsg(`Mode set to ${key}`)
+      setMsg(`✓ ${MODES.find(m => m.key === key)?.label}`)
     } catch (e) {
-      setMsg(e.message.includes('401') ? 'Log in to Admin to change mode' : '✗ ' + e.message)
+      setLocalMode(currentMode)   // revert on failure
+      setMsg('✗ ' + e.message)
     } finally {
-      setSwitching(null)
-      setTimeout(() => setMsg(''), 3000)
+      setSwitching(false)
+      setTimeout(() => setMsg(''), 2500)
     }
   }
 
-  const active = MODES.find(m => m.key === currentMode) || MODES[0]
+  const active = MODES.find(m => m.key === localMode) || MODES[0]
 
   return (
     <div style={{
@@ -150,12 +156,12 @@ function ModeBar({ currentMode }) {
 
       <div style={{ display: 'flex', gap: 4, flex: 1, flexWrap: 'wrap' }}>
         {MODES.map(m => {
-          const isActive = m.key === currentMode
+          const isActive = m.key === localMode
           return (
             <button
               key={m.key}
               onClick={() => switchMode(m.key)}
-              disabled={!!switching}
+              disabled={switching}
               style={{
                 flex: 1,
                 background: isActive ? `${m.color}18` : 'none',
@@ -169,16 +175,15 @@ function ModeBar({ currentMode }) {
                 cursor: switching ? 'wait' : 'pointer',
                 transition: 'all 0.15s',
                 textAlign: 'center',
-                opacity: switching && switching !== m.key ? 0.4 : 1,
               }}
             >
-              {switching === m.key ? '...' : m.label}
+              {m.label}
             </button>
           )
         })}
       </div>
 
-      <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.1em', whiteSpace: 'nowrap' }}>
+      <div style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.1em', whiteSpace: 'nowrap', color: msg.startsWith('✓') ? 'var(--green)' : msg.startsWith('✗') ? 'var(--red)' : 'var(--text-dim)' }}>
         {msg || active.short}
       </div>
     </div>

@@ -103,7 +103,7 @@ export const api = {
     clearLogs: (logType = null) =>
       adminDel(logType ? `/admin/logs?log_type=${logType}` : '/admin/logs'),
 
-    setMode: (mode) => adminPost('/mode', { mode }),
+    setMode: (mode) => post('/mode', { mode }),
 
     wipeSnapshots: () => adminDel('/admin/snapshots'),
 

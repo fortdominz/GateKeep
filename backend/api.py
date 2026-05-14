@@ -526,16 +526,17 @@ def get_mode():
 
 
 @app.post("/api/mode")
-async def set_mode(body: SetModeBody, token: str = Depends(require_admin)):
+def set_mode(body: SetModeBody):
     valid = {"BANNED_ONLY", "ALLOWLIST_ONLY", "COMBINED"}
     if body.mode not in valid:
         raise HTTPException(status_code=400, detail=f"Mode must be one of {valid}")
     cam_state.mode = body.mode
     db.set_detection_mode(body.mode)
-    # Reset all cooldown timers when switching modes
+    # Reset all cooldown timers so the new mode starts clean
     cam_state.alert_times        = {}
     cam_state.known_entry_times  = {}
     cam_state.unauthorized_times = {}
+    print(f"[GateKeep] Detection mode → {body.mode}")
     return {"mode": cam_state.mode}
 
 
