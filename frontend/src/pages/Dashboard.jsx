@@ -262,185 +262,62 @@ function AlertTicker({ alerts }) {
   )
 }
 
-// ── Camera status hero ───────────────────────────────────────
+// ── Camera status hero ───────────────────────────────────
 
 function CamHero({ stats, navigate }) {
-  const isLive = stats?.camera_active
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [threshold,    setThreshold]    = useState(0.45)
-  const [cameraId,     setCameraId]     = useState(0)
-  const [camMsg,       setCamMsg]       = useState('')
-  const [busy,         setBusy]         = useState(false)
-
-  async function startCamera() {
-    setBusy(true)
-    try {
-      await api.startCamera(cameraId, threshold)
-      setCamMsg('✓ Camera started')
-    } catch (e) {
-      setCamMsg('✗ ' + e.message)
-    } finally {
-      setBusy(false)
-      setTimeout(() => setCamMsg(''), 3000)
-    }
-  }
-
-  async function stopCamera() {
-    setBusy(true)
-    try {
-      await api.stopCamera()
-      setCamMsg('✓ Camera stopped')
-    } catch (e) {
-      setCamMsg('✗ ' + e.message)
-    } finally {
-      setBusy(false)
-      setTimeout(() => setCamMsg(''), 3000)
-    }
-  }
+  const threatKey   = stats?.current_threat ?? 'NOMINAL'
+  const threatColor = { NOMINAL: 'var(--green)', ELEVATED: 'var(--amber)', HIGH: '#ff6600', CRITICAL: 'var(--red)' }[threatKey] || 'var(--green)'
 
   return (
     <div className="soc-cam-hero">
-      <div className="panel-title">Primary Camera</div>
+      <div className="panel-title">Live Monitoring</div>
 
-      {/* Live feed */}
+      {/* Camera preview card — threat level display */}
       <div style={{
         background: '#000',
-        border: `1px solid ${isLive ? 'rgba(255,32,32,0.3)' : 'var(--border)'}`,
+        border: '1px solid var(--border)',
         width: '100%',
         aspectRatio: '16/9',
         position: 'relative',
         overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 12,
       }}>
-        {isLive ? (
-          <>
-            <img
-              src={api.streamUrl()}
-              alt="Live feed"
-              style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
-            />
-            {/* scanlines */}
-            <div style={{
-              position: 'absolute', inset: 0, zIndex: 2, pointerEvents: 'none',
-              background: 'repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.06) 3px,rgba(0,0,0,0.06) 4px)'
-            }} />
-            <div style={{ position: 'absolute', top: 8, left: 10, zIndex: 3, fontFamily: 'var(--mono)', fontSize: 10, color: 'rgba(255,255,255,0.7)', textShadow: '0 1px 6px rgba(0,0,0,0.9)', lineHeight: 1.7 }}>
-              <div style={{ color: 'var(--red)' }}>● REC</div>
-              <LiveClock />
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="feed-nosignal" />
-            <div className="feed-static" />
-            <div className="feed-nosignal-text">
-              <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.3em' }}>NO SIGNAL</span>
-              <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.18em', marginTop: 4 }}>CAM-00 OFFLINE</span>
-            </div>
-          </>
-        )}
+        <div className="feed-nosignal" />
+        <div className="feed-static" />
+
+        <div style={{
+          position: 'relative', zIndex: 2, textAlign: 'center',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
+        }}>
+          <div style={{ fontFamily: 'var(--mono)', fontSize: 28, fontWeight: 800, color: threatColor, letterSpacing: '0.18em', textShadow: `0 0 20px ${threatColor}80` }}>
+            {threatKey}
+          </div>
+          <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.3em' }}>
+            THREAT LEVEL
+          </div>
+          <button
+            className="btn btn-primary"
+            onClick={() => navigate('/feed')}
+            style={{ marginTop: 4, fontSize: 10, letterSpacing: '0.14em' }}
+          >
+            ▶ Launch Live Feed
+          </button>
+          <div style={{ fontFamily: 'var(--mono)', fontSize: 8, color: 'rgba(255,255,255,0.25)', letterSpacing: '0.18em' }}>
+            Opens browser camera · uses your device
+          </div>
+        </div>
       </div>
 
       {/* Status row */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: -8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span className={`rec-dot ${isLive ? 'live' : 'offline'}`} />
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: isLive ? 'var(--red)' : 'var(--text-dim)', letterSpacing: '0.1em' }}>
-            {isLive ? 'LIVE — RECORDING' : 'CAMERA OFFLINE'}
-          </span>
-        </div>
-        <button
-          className="btn btn-ghost"
-          onClick={() => navigate('/feed')}
-          style={{ fontSize: 11, padding: '5px 12px' }}
-        >
-          Full Feed ↗
-        </button>
-      </div>
-
-      {/* ── Settings dropdown ── */}
-      <div style={{ borderTop: '1px solid var(--border)', marginTop: -4 }}>
-        <button
-          onClick={() => setSettingsOpen(o => !o)}
-          style={{
-            width: '100%', background: 'none', border: 'none',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '10px 0', cursor: 'pointer', color: 'var(--text-dim)',
-            fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.18em',
-            textTransform: 'uppercase',
-          }}
-        >
-          <span>// Feed Settings</span>
-          <span style={{ display: 'inline-block', transform: settingsOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', fontSize: 10 }}>▼</span>
-        </button>
-
-        {settingsOpen && (
-          <div style={{ paddingBottom: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
-
-            {/* Threshold */}
-            <div>
-              <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>
-                Match Threshold — {threshold.toFixed(2)}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input
-                  type="range" min="0.1" max="1.0" step="0.01"
-                  value={threshold}
-                  onChange={e => setThreshold(parseFloat(e.target.value))}
-                  style={{ flex: 1, accentColor: 'var(--red)' }}
-                />
-                <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-mid)', minWidth: 32 }}>
-                  {threshold.toFixed(2)}
-                </span>
-              </div>
-              <div style={{ fontFamily: 'var(--mono)', fontSize: 8, color: 'var(--text-dim)', marginTop: 4, letterSpacing: '0.1em' }}>
-                Lower = stricter matching. Recommended: 0.40 – 0.55
-              </div>
-            </div>
-
-            {/* Camera ID */}
-            <div>
-              <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>
-                Camera Index
-              </div>
-              <select
-                value={cameraId}
-                onChange={e => setCameraId(Number(e.target.value))}
-                style={{ width: '100%' }}
-              >
-                <option value={0}>0 — Default / Built-in</option>
-                <option value={1}>1 — External Camera</option>
-                <option value={2}>2 — Camera 2</option>
-                <option value={3}>3 — Camera 3</option>
-              </select>
-            </div>
-
-            {/* Camera controls */}
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                className="btn btn-primary"
-                onClick={startCamera}
-                disabled={busy || isLive}
-                style={{ flex: 1, justifyContent: 'center', fontSize: 11 }}
-              >
-                {busy ? '...' : '▶ Start'}
-              </button>
-              <button
-                className="btn btn-ghost"
-                onClick={stopCamera}
-                disabled={busy || !isLive}
-                style={{ flex: 1, justifyContent: 'center', fontSize: 11 }}
-              >
-                {busy ? '...' : '■ Stop'}
-              </button>
-            </div>
-
-            {camMsg && (
-              <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: camMsg.startsWith('✓') ? 'var(--green)' : 'var(--red)', letterSpacing: '0.1em' }}>
-                {camMsg}
-              </div>
-            )}
-          </div>
-        )}
+      <div style={{ display: 'flex', alignItems: 'center', marginTop: -8 }}>
+        <span className="rec-dot offline" />
+        <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-dim)', letterSpacing: '0.1em', marginLeft: 8 }}>
+          BROWSER CAMERA — LAUNCH LIVE FEED TO ACTIVATE
+        </span>
       </div>
 
       {/* Quick ops */}

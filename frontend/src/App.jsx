@@ -7,7 +7,10 @@ import AllowedList from './pages/AllowedList.jsx'
 import Enroll      from './pages/Enroll.jsx'
 import AlertLog    from './pages/AlertLog.jsx'
 import Admin       from './pages/Admin.jsx'
-import { api } from './api.js'
+import { api, getSessionId } from './api.js'
+
+// Ensure session ID is created on first load
+getSessionId()
 
 const NAV = [
   { path: '/',        label: 'Dashboard',   short: 'F1' },
@@ -150,13 +153,11 @@ function Sidebar({ stats, theme, onThemeToggle }) {
 
 function StatusBar({ stats }) {
   const clock = useClock()
+  const sid   = getSessionId().slice(0, 8)
   return (
     <div className="status-bar">
       <div className="sb-item">
-        CAM&nbsp;
-        <span className="sb-val" style={{ color: stats?.camera_active ? 'var(--red)' : 'var(--text-dim)' }}>
-          {stats?.camera_active ? '● LIVE' : '○ OFFLINE'}
-        </span>
+        SID&nbsp;<span className="sb-val" style={{ color: 'var(--text-dim)', fontSize: 9 }}>{sid}</span>
       </div>
       <div className="sb-item">
         BANNED&nbsp;<span className="sb-val red">{stats?.banned_count ?? '—'}</span>

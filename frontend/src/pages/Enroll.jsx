@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { getSessionId } from '../api.js'
 
 export default function Enroll() {
   const [name, setName]         = useState('')
@@ -42,10 +43,11 @@ export default function Enroll() {
 
     try {
       const formData = new FormData()
-      formData.append('name',      name.trim())
-      formData.append('notes',     notes.trim())
-      formData.append('list_type', listType)
-      formData.append('image',     file)
+      formData.append('session_id', getSessionId())
+      formData.append('name',       name.trim())
+      formData.append('notes',      notes.trim())
+      formData.append('list_type',  listType)
+      formData.append('image',      file)
 
       const BASE = (import.meta.env.VITE_API_URL || '') + '/api'
       const res = await fetch(`${BASE}/enroll`, { method: 'POST', body: formData })
