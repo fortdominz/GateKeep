@@ -76,7 +76,9 @@ def init_db():
                 value TEXT NOT NULL
             )
         """)
-        default_hash = hashlib.sha256(b'admin').hexdigest()
+        # Use ADMIN_PASSWORD env var if set; fall back to 'admin' for local dev only
+        default_pw   = os.environ.get("ADMIN_PASSWORD", "admin").encode("utf-8")
+        default_hash = hashlib.sha256(default_pw).hexdigest()
         conn.execute(
             "INSERT OR IGNORE INTO admin_config (key, value) VALUES (?, ?)",
             ('password_hash', default_hash)
