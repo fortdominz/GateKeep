@@ -46,11 +46,18 @@ const post = (path, body) => req('POST',   path, body)
 const del  = (path)       => req('DELETE', path)
 
 // ── Admin auth helpers ────────────────────────────────────────────────────────
+// Token lives in memory only — automatically gone on every page refresh.
+// _lastAdminTouch is updated every 15 s while the Admin page is mounted.
+// If more than ADMIN_IDLE_MS has passed since the last touch, the session
+// is treated as expired and the login screen is shown again.
 
-const TOKEN_KEY  = 'gk-admin-token'
-const getToken   = () => sessionStorage.getItem(TOKEN_KEY)
-const setToken   = (t) => sessionStorage.setItem(TOKEN_KEY, t)
-const clearToken = () => sessionStorage.removeItem(TOKEN_KEY)
+let _adminToken    = null
+let _lastAdminTouch = 0
+const ADMIN_IDLE_MS = 60_000   // 1 minute
+
+const getToken   = () => _adminToken
+const setToken   = (t) => { _adminToken = t }
+const clearToken = () => { _adminToken = null; _lastAdminTouch = 0 }
 
 async function adminReq(method, path, body) {
   const token = getToken()
@@ -122,7 +129,10 @@ export const api = {
 
   // ── Admin ──────────────────────────────────────────────────────────────────
   admin: {
-    isLoggedIn: () => !!getToken(),
+    isLoggedIn:       () => !!getToken(),
+    isActivityRecent: () => _lastAdminTouch > 0 && (Date.now() - _lastAdminTouch) < ADMIN_IDLE_MS,
+    touchActivity:    () => { _lastAdminTouch = Date.now() },
+    clearSession:     () => clearToken(),
 
     login: async (password) => {
       const data = await post('/admin/login', { password })

@@ -1158,10 +1158,31 @@ function AdminLogin({ onLogin }) {
 // ── Root export ────────────────────────────────────────────────
 
 export default function Admin() {
-  const [authed,   setAuthed]   = useState(api.admin.isLoggedIn())
+  const [authed, setAuthed] = useState(() => {
+    // Token in memory + must have been active within the last 60 s.
+    // Both conditions fail on every refresh (memory is wiped) and after
+    // navigating away for more than a minute.
+    if (!api.admin.isLoggedIn()) return false
+    if (!api.admin.isActivityRecent()) {
+      api.admin.clearSession()   // drop stale token (sync, no fetch)
+      return false
+    }
+    return true
+  })
   const [forceSet, setForceSet] = useState(false)
 
+  // Keep the activity timestamp alive every 15 s while on this page.
+  // When the user navigates away the interval stops and the timestamp
+  // freezes — so returning after 60+ s will fail isActivityRecent().
+  useEffect(() => {
+    if (!authed) return
+    api.admin.touchActivity()                                   // immediate touch on mount
+    const id = setInterval(() => api.admin.touchActivity(), 15_000)
+    return () => clearInterval(id)
+  }, [authed])
+
   function handleLogin(data) {
+    api.admin.touchActivity()   // start the clock
     setAuthed(true)
     if (data?.is_default_password) setForceSet(true)
   }
