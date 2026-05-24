@@ -189,8 +189,8 @@ export default function LiveFeed() {
 
       setIsLive(true)
 
-      // Sync threshold to backend
-      try { await api.admin.setThreshold(threshold) } catch {}
+      // Sync threshold to backend (public endpoint — no admin token needed)
+      try { await api.admin.setSessionThreshold(threshold) } catch {}
 
       // Start detection loop
       timerRef.current = setInterval(sendFrame, 1000 / DETECT_FPS)

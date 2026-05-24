@@ -464,6 +464,15 @@ def get_mode(session_id: str = Query("default")):
     return {"mode": db.get_session_mode(session_id)}
 
 
+@app.post("/api/session/threshold")
+def set_session_threshold_public(body: ThresholdBody, session_id: str = Query("default")):
+    """Public endpoint — lets any visitor adjust their own session threshold."""
+    if not (0.1 <= body.threshold <= 1.0):
+        raise HTTPException(status_code=400, detail="Threshold must be 0.1 – 1.0")
+    db.set_session_threshold(session_id, body.threshold)
+    return {"ok": True, "threshold": body.threshold}
+
+
 @app.post("/api/mode")
 def set_mode(body: SetModeBody, session_id: str = Query("default")):
     valid = {"BANNED_ONLY", "ALLOWLIST_ONLY", "COMBINED"}

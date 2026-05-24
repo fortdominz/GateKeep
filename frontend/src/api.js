@@ -147,8 +147,13 @@ export const api = {
 
     wipeSnapshots: () => adminDel('/admin/snapshots'),
 
+    // Admin-only threshold (kept for admin panel compatibility)
     setThreshold: (threshold) =>
       adminPost(withSession('/admin/threshold'), { threshold }),
+
+    // Public threshold — used by LiveFeed for regular visitors
+    setSessionThreshold: (threshold) =>
+      post(withSession('/session/threshold'), { threshold }),
 
     exportSnapshots: async (paths) => {
       const token = getToken()
