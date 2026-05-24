@@ -44,6 +44,8 @@ app.add_middleware(
         "http://localhost:5178",
         "http://localhost:4173",
         "https://gatekeep.dominioneze.dev",
+        "https://frontend-ten-swart-82.vercel.app",
+        "https://gatekeep-api.onrender.com",
     ],
     allow_credentials=True,
     allow_methods=["*"],

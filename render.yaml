@@ -10,7 +10,9 @@ services:
         value: "3.11"
       - key: GATEKEEP_DATA_DIR
         value: /data
+      - key: INSIGHTFACE_HOME
+        value: /data/.insightface
     disk:
       name: gatekeep-data
       mountPath: /data
-      sizeGB: 1
+      sizeGB: 2
