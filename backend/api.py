@@ -98,7 +98,9 @@ def admin_login(body: AdminLoginBody):
         raise HTTPException(status_code=401, detail="Invalid password")
     token = secrets.token_hex(32)
     _sessions[token] = time.time() + 8 * 3600   # 8-hour session
-    return {"token": token}
+    # Tell the frontend when the password is still the factory default
+    is_default = (stored == hashlib.sha256(b"admin").hexdigest())
+    return {"token": token, "is_default_password": is_default}
 
 
 @app.post("/api/admin/logout")
@@ -109,8 +111,8 @@ async def admin_logout(token: str = Depends(require_admin)):
 
 @app.post("/api/admin/change-password")
 async def change_password(body: ChangePasswordBody, token: str = Depends(require_admin)):
-    if len(body.new_password) < 4:
-        raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
+    if len(body.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     db.set_admin_password_hash(_hash_pw(body.new_password))
     return {"ok": True}
 
@@ -635,14 +637,26 @@ def get_stats(session_id: str = Query("default")):
     def count_type(records, lt):
         return sum(1 for l in records if l.get("log_type") == lt)
 
+    # Count snapshot files on disk
+    try:
+        snap_count = len([
+            f for f in os.listdir(SNAPSHOTS_DIR)
+            if f.lower().endswith(('.jpg', '.jpeg', '.png'))
+        ])
+    except Exception:
+        snap_count = 0
+
     return {
         "banned_count":            len(banned),
         "allowed_count":           len(allowed),
         "detection_mode":          db.get_session_mode(session_id),
+        "threshold":               db.get_session_threshold(session_id),
+        "model":                   os.environ.get("INSIGHTFACE_MODEL", "buffalo_sc"),
         "total_detections":        len(logs),
         "total_alerts":            count_type(logs,   "BANNED_ALERT"),
         "alerts_last_24h":         count_type(recent, "BANNED_ALERT"),
         "unauthorized_last_24h":   count_type(recent, "UNAUTHORIZED"),
         "known_entries_last_24h":  count_type(recent, "KNOWN_ENTRY"),
+        "snapshot_count":          snap_count,
         "current_threat":          _session_threat(session_id),
     }

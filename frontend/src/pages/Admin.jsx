@@ -3,7 +3,47 @@ import { api } from '../api.js'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8090'
 
-// ── Snapshot modal (evidence viewer) ─────────────────────────
+// ── Shared style + components ─────────────────────────────────
+
+const mono9 = {
+  fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.18em',
+  textTransform: 'uppercase', color: 'var(--text-dim)',
+}
+
+function SectionTitle({ children }) {
+  return (
+    <div style={{ ...mono9, marginBottom: 14, borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
+      // {children}
+    </div>
+  )
+}
+
+function Msg({ text }) {
+  if (!text) return null
+  const ok = text.startsWith('✓')
+  return (
+    <div style={{
+      fontFamily: 'var(--mono)', fontSize: 11,
+      color: ok ? 'var(--green)' : 'var(--red)',
+      background: ok ? 'var(--green-dim)' : 'rgba(255,32,32,0.1)',
+      border: `1px solid ${ok ? 'rgba(0,230,118,0.2)' : 'rgba(255,32,32,0.2)'}`,
+      padding: '10px 16px', letterSpacing: '0.1em', marginBottom: 16,
+    }}>
+      {text}
+    </div>
+  )
+}
+
+function InfoRow({ label, val, color }) {
+  return (
+    <div className="info-row">
+      <span className="info-key">{label}</span>
+      <span className="info-val" style={color ? { color } : {}}>{val ?? '—'}</span>
+    </div>
+  )
+}
+
+// ── Snapshot modal ─────────────────────────────────────────────
 
 function SnapshotModal({ log, onClose }) {
   useEffect(() => {
@@ -37,9 +77,7 @@ function SnapshotModal({ log, onClose }) {
           background: 'var(--surface2)',
         }}>
           <div>
-            <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 4 }}>
-              // Evidence Record
-            </div>
+            <div style={{ ...mono9, marginBottom: 4 }}>// Evidence Record</div>
             <div style={{ fontFamily: 'var(--sans)', fontSize: 14, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--red)' }}>
               {log.matched_name || 'Unknown'}
             </div>
@@ -74,7 +112,7 @@ function SnapshotModal({ log, onClose }) {
             ['Camera',     log.camera_id || '—'],
           ].map(([label, val]) => (
             <div key={label} style={{ padding: '12px 16px', borderRight: '1px solid var(--border)' }}>
-              <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
+              <div style={{ ...mono9, marginBottom: 4 }}>{label}</div>
               <div style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--text)', fontWeight: 600 }}>{val}</div>
             </div>
           ))}
@@ -84,7 +122,7 @@ function SnapshotModal({ log, onClose }) {
   )
 }
 
-// ── Evidence helpers ──────────────────────────────────────────
+// ── Evidence helpers ───────────────────────────────────────────
 
 const UNIT_TO_MINUTES = {
   minutes: 1, hours: 60, days: 1440, weeks: 10080, months: 43200, years: 525600,
@@ -140,7 +178,267 @@ function groupEvidence(logs, intervalMinutes, sortDir) {
   )
 }
 
-// ── Evidence tab ──────────────────────────────────────────────
+// ── Overview tab ───────────────────────────────────────────────
+
+const LOG_TYPE_COLOR = {
+  BANNED_ALERT: 'var(--red)',
+  UNKNOWN:      'var(--text-dim)',
+  KNOWN_ENTRY:  'var(--green)',
+  UNAUTHORIZED: 'var(--amber)',
+}
+
+function OverviewTab() {
+  const [stats,   setStats]   = useState(null)
+  const [logs,    setLogs]    = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => { load() }, [])
+
+  async function load() {
+    setLoading(true)
+    try {
+      const [s, l] = await Promise.all([api.stats(), api.getLogs(10)])
+      setStats(s)
+      setLogs(l)
+    } catch {}
+    setLoading(false)
+  }
+
+  const threat = stats?.current_threat || 'NOMINAL'
+  const threatColor = { NOMINAL: 'var(--green)', LOW: 'var(--amber)', ELEVATED: 'var(--amber)', HIGH: 'var(--red)', CRITICAL: 'var(--red)' }[threat] || 'var(--text-mid)'
+
+  if (loading) return <div className="empty-state"><p>Loading system status...</p></div>
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+      {/* Threat Level banner */}
+      <div style={{ padding: '20px 24px', background: 'var(--surface2)', border: `1px solid ${threatColor}`, display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ ...mono9, marginBottom: 6 }}>Current Threat Level</div>
+          <div style={{ fontFamily: 'var(--mono)', fontSize: 32, fontWeight: 700, color: threatColor, letterSpacing: '0.05em' }}>
+            {threat}
+          </div>
+        </div>
+        <div style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
+          <div style={{ ...mono9 }}>Mode: <span style={{ color: 'var(--text-mid)' }}>{stats?.detection_mode || 'BANNED_ONLY'}</span></div>
+          <div style={{ ...mono9 }}>Threshold: <span style={{ color: 'var(--text-mid)' }}>{stats?.threshold?.toFixed(2) || '0.45'}</span></div>
+        </div>
+        <button className="btn btn-ghost" onClick={load} style={{ fontSize: 10, padding: '4px 12px', alignSelf: 'flex-start' }}>↺</button>
+      </div>
+
+      {/* Stats grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: 2 }}>
+        {[
+          ['Banned Faces',     stats?.banned_count    ?? '—', 'var(--red)'],
+          ['Allowed Faces',    stats?.allowed_count   ?? '—', 'var(--green)'],
+          ['Total Detections', stats?.total_detections ?? '—', 'var(--text-mid)'],
+          ['Alerts (24h)',     stats?.alerts_last_24h ?? '—', stats?.alerts_last_24h > 0 ? 'var(--amber)' : 'var(--text-mid)'],
+          ['Total Alerts',     stats?.total_alerts    ?? '—', 'var(--text-mid)'],
+          ['Snapshots',        stats?.snapshot_count  ?? '—', 'var(--text-mid)'],
+        ].map(([label, val, color]) => (
+          <div key={label} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', padding: '16px 18px' }}>
+            <div style={{ ...mono9, marginBottom: 8 }}>{label}</div>
+            <div style={{ fontFamily: 'var(--mono)', fontSize: 26, fontWeight: 700, color }}>{val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Recent Activity */}
+      <div className="panel">
+        <SectionTitle>Recent Activity</SectionTitle>
+        {logs.length === 0 ? (
+          <div style={{ ...mono9, padding: '10px 0' }}>No activity recorded yet.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {logs.map(log => (
+              <div key={log.id} style={{ display: 'flex', gap: 16, alignItems: 'center', padding: '8px 12px', background: 'var(--surface2)', borderLeft: `2px solid ${LOG_TYPE_COLOR[log.log_type] || 'var(--border)'}` }}>
+                <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', whiteSpace: 'nowrap', minWidth: 70 }}>
+                  {log.timestamp?.slice(11, 19) || '—'}
+                </div>
+                <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: LOG_TYPE_COLOR[log.log_type] || 'var(--text-dim)', minWidth: 120, whiteSpace: 'nowrap', letterSpacing: '0.08em' }}>
+                  {log.log_type || 'UNKNOWN'}
+                </div>
+                <div style={{ fontFamily: 'var(--sans)', fontSize: 12, color: 'var(--text)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {log.matched_name || <span style={{ color: 'var(--text-dim)' }}>No match</span>}
+                </div>
+                {log.similarity > 0 && (
+                  <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>
+                    {(log.similarity * 100).toFixed(1)}%
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* System info */}
+      <div className="panel">
+        <SectionTitle>System Info</SectionTitle>
+        <InfoRow label="Detection Model"  val={stats?.model || 'buffalo_sc'} />
+        <InfoRow label="Match Algorithm"  val="Cosine Similarity" />
+        <InfoRow label="Storage"          val="SQLite" />
+        <InfoRow label="Backend"          val={API_BASE || 'localhost:8090'} />
+      </div>
+    </div>
+  )
+}
+
+// ── Watchlist tab ──────────────────────────────────────────────
+
+function FaceCard({ face, listType, onDelete }) {
+  const [confirmDel, setConfirmDel] = useState(false)
+  const [busy,       setBusy]       = useState(false)
+
+  const isBanned    = listType === 'banned'
+  const accentColor = isBanned ? 'var(--red)' : 'var(--green)'
+  const imgFilename = face.image_path
+    ? face.image_path.replace(/\\/g, '/').split('/').pop()
+    : null
+
+  async function handleDelete() {
+    setBusy(true)
+    try {
+      if (isBanned) await api.deleteBanned(face.id)
+      else          await api.deleteAllowed(face.id)
+      onDelete(face.id)
+    } catch (e) {
+      alert('Delete failed: ' + e.message)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+
+      {/* Thumbnail */}
+      <div style={{ aspectRatio: '1/1', background: '#111', position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ fontFamily: 'var(--mono)', fontSize: 28, color: accentColor, opacity: 0.25 }}>◉</div>
+        {imgFilename && (
+          <img
+            src={`${API_BASE}/snapshots/${imgFilename}`}
+            alt={face.name}
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            onError={e => { e.target.style.display = 'none' }}
+          />
+        )}
+        <div style={{ position: 'absolute', top: 6, left: 6, fontFamily: 'var(--mono)', fontSize: 8, color: accentColor, background: 'rgba(0,0,0,0.72)', padding: '2px 6px', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+          {isBanned ? 'BANNED' : 'ALLOWED'}
+        </div>
+      </div>
+
+      {/* Info */}
+      <div style={{ padding: '10px 12px', flex: 1 }}>
+        <div style={{ fontFamily: 'var(--sans)', fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 2 }}>{face.name}</div>
+        {face.notes && (
+          <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', marginBottom: 4, lineHeight: 1.5 }}>{face.notes}</div>
+        )}
+        <div style={{ fontFamily: 'var(--mono)', fontSize: 8, color: 'var(--text-dim)' }}>{face.added_at?.slice(0, 10) || '—'}</div>
+      </div>
+
+      {/* Delete */}
+      <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border)' }}>
+        {!confirmDel ? (
+          <button
+            className="btn btn-ghost"
+            onClick={() => setConfirmDel(true)}
+            style={{ fontSize: 10, padding: '3px 10px', borderColor: 'rgba(255,32,32,0.25)', color: 'var(--red)', width: '100%' }}
+          >
+            Remove
+          </button>
+        ) : (
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              className="btn btn-primary"
+              onClick={handleDelete}
+              disabled={busy}
+              style={{ fontSize: 10, padding: '3px 10px', background: 'var(--red)', flex: 1 }}
+            >
+              {busy ? '...' : 'Confirm'}
+            </button>
+            <button className="btn btn-ghost" onClick={() => setConfirmDel(false)} style={{ fontSize: 10, padding: '3px 10px' }}>
+              No
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function WatchlistTab() {
+  const [banned,     setBanned]     = useState([])
+  const [allowed,    setAllowed]    = useState([])
+  const [loading,    setLoading]    = useState(true)
+  const [activeList, setActiveList] = useState('banned')
+
+  useEffect(() => { load() }, [])
+
+  async function load() {
+    setLoading(true)
+    try {
+      const [b, a] = await Promise.all([api.getBanned(), api.getAllowed()])
+      setBanned(b)
+      setAllowed(a)
+    } catch {}
+    setLoading(false)
+  }
+
+  const list   = activeList === 'banned' ? banned  : allowed
+  const setter = activeList === 'banned' ? setBanned : setAllowed
+
+  return (
+    <div>
+      {/* Sub-tabs */}
+      <div style={{ display: 'flex', gap: 2, marginBottom: 20, borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
+        {[
+          { key: 'banned',  label: `Banned (${banned.length})`  },
+          { key: 'allowed', label: `Allowed (${allowed.length})` },
+        ].map(t => (
+          <button
+            key={t.key}
+            onClick={() => setActiveList(t.key)}
+            style={{
+              background: 'none', border: 'none',
+              borderBottom: activeList === t.key ? '2px solid var(--red)' : '2px solid transparent',
+              color: activeList === t.key ? 'var(--text)' : 'var(--text-dim)',
+              fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase',
+              padding: '8px 18px', cursor: 'pointer', marginBottom: -1, whiteSpace: 'nowrap',
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+        <button className="btn btn-ghost" onClick={load} disabled={loading} style={{ fontSize: 10, padding: '4px 12px', marginLeft: 'auto' }}>
+          {loading ? '...' : '↺ Refresh'}
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="empty-state"><p>Loading watchlist...</p></div>
+      ) : list.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-label">// empty</div>
+          <p>No {activeList} faces enrolled.<br />Use the Enroll page to add faces.</p>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 2 }}>
+          {list.map(face => (
+            <FaceCard
+              key={face.id}
+              face={face}
+              listType={activeList}
+              onDelete={(id) => setter(prev => prev.filter(f => f.id !== id))}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Evidence tab ───────────────────────────────────────────────
 
 function EvidenceTab() {
   const [logs,       setLogs]       = useState([])
@@ -160,8 +458,8 @@ function EvidenceTab() {
   async function loadLogs() {
     setLoading(true)
     try {
-      const all = await api.getLogs(500, true)   // alerts only
-      setLogs(all.filter(l => l.snapshot_url))   // only those with snapshots
+      const all = await api.getLogs(500, true)
+      setLogs(all.filter(l => l.snapshot_url))
       setError('')
     } catch (e) {
       setError(e.message)
@@ -183,7 +481,7 @@ function EvidenceTab() {
     next.has(id) ? next.delete(id) : next.add(id)
     return next
   })
-  const groupIds = (group) => group.logs.map(l => l.id)
+  const groupIds    = (group) => group.logs.map(l => l.id)
   const allGroupSel = (group) => groupIds(group).every(id => selectedIds.has(id))
   const toggleGroup = (group) => {
     const ids = groupIds(group)
@@ -194,7 +492,7 @@ function EvidenceTab() {
       return next
     })
   }
-  const allSel = logs.length > 0 && logs.every(l => selectedIds.has(l.id))
+  const allSel    = logs.length > 0 && logs.every(l => selectedIds.has(l.id))
   const toggleAll = () => setSelectedIds(allSel ? new Set() : new Set(logs.map(l => l.id)))
 
   async function handleExport() {
@@ -217,18 +515,16 @@ function EvidenceTab() {
   }
 
   const closeModal = useCallback(() => setActiveSnap(null), [])
-
-  const mono = { fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.16em', textTransform: 'uppercase', whiteSpace: 'nowrap' }
+  const colLabel   = { fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.16em', textTransform: 'uppercase', whiteSpace: 'nowrap' }
 
   return (
     <div>
       {activeSnap && <SnapshotModal log={activeSnap} onClose={closeModal} />}
-
       {error && <div className="error-msg">ERR: {error}</div>}
 
       {/* Controls */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
-        <span style={mono}>Group by</span>
+        <span style={colLabel}>Group by</span>
         <select
           value={preset}
           onChange={e => { const v = e.target.value; setPreset(v === 'all' || v === 'custom' ? v : Number(v)) }}
@@ -252,7 +548,7 @@ function EvidenceTab() {
           </>
         )}
 
-        <span style={{ ...mono, marginLeft: 8 }}>Sort</span>
+        <span style={{ ...colLabel, marginLeft: 8 }}>Sort</span>
         <select value={sortDir} onChange={e => setSortDir(e.target.value)} style={{ width: 'auto' }}>
           <option value="desc">Newest First</option>
           <option value="asc">Oldest First</option>
@@ -273,7 +569,7 @@ function EvidenceTab() {
         </div>
       </div>
 
-      {/* Summary chips */}
+      {/* Summary */}
       <div style={{ display: 'flex', gap: 16, marginBottom: 14, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-dim)', letterSpacing: '0.12em' }}>
         <span>SNAPSHOTS: <span style={{ color: 'var(--amber)' }}>{logs.length}</span></span>
         {selectedIds.size > 0 && <span>SELECTED: <span style={{ color: 'var(--green)' }}>{selectedIds.size}</span></span>}
@@ -366,16 +662,33 @@ function EvidenceTab() {
   )
 }
 
-// ── System tools tab ──────────────────────────────────────────
+// ── System tab ─────────────────────────────────────────────────
+
+const LOG_TYPE_OPTIONS = [
+  { value: '',              label: 'All Logs'           },
+  { value: 'BANNED_ALERT',  label: 'Banned Alerts'      },
+  { value: 'UNAUTHORIZED',  label: 'Unauthorized'       },
+  { value: 'KNOWN_ENTRY',   label: 'Known Entries'      },
+  { value: 'UNKNOWN',       label: 'Unknown Detections' },
+]
+
+const MODES = [
+  { value: 'BANNED_ONLY', label: 'Banned Only',    desc: 'Alert only when a banned face is detected' },
+  { value: 'KNOWN_ONLY',  label: 'Allowlist Mode', desc: 'Alert when a face is NOT on the allowed list' },
+  { value: 'DUAL',        label: 'Dual Mode',      desc: 'Alert on banned faces and flag all unknowns' },
+]
 
 function SystemTab() {
-  const [stats,       setStats]       = useState(null)
-  const [threshold,   setThreshold]   = useState(0.45)
-  const [threshMsg,   setThreshMsg]   = useState('')
+  const [stats,        setStats]        = useState(null)
+  const [threshold,    setThreshold]    = useState(0.45)
+  const [threshMsg,    setThreshMsg]    = useState('')
+  const [mode,         setMode]         = useState('BANNED_ONLY')
+  const [modeMsg,      setModeMsg]      = useState('')
+  const [clearType,    setClearType]    = useState('')
   const [confirmClear, setConfirmClear] = useState(false)
   const [confirmWipe,  setConfirmWipe]  = useState(false)
-  const [busy,        setBusy]         = useState('')
-  const [msg,         setMsg]          = useState('')
+  const [busy,         setBusy]         = useState('')
+  const [msg,          setMsg]          = useState('')
 
   useEffect(() => { loadStats() }, [])
 
@@ -384,24 +697,37 @@ function SystemTab() {
       const s = await api.stats()
       setStats(s)
       setThreshold(s.threshold ?? 0.45)
+      setMode(s.detection_mode || 'BANNED_ONLY')
     } catch {}
   }
 
   async function applyThreshold() {
     try {
       const res = await api.admin.setThreshold(parseFloat(threshold))
-      setThreshMsg(`✓ Threshold set to ${res.threshold.toFixed(2)}`)
+      setThreshMsg(`✓ Threshold updated to ${res.threshold.toFixed(2)}`)
       setTimeout(() => setThreshMsg(''), 3000)
     } catch (e) {
       setThreshMsg('✗ ' + e.message)
     }
   }
 
+  async function applyMode(newMode) {
+    try {
+      await api.admin.setMode(newMode)
+      setMode(newMode)
+      setModeMsg(`✓ Mode set to ${newMode}`)
+      setTimeout(() => setModeMsg(''), 3000)
+    } catch (e) {
+      setModeMsg('✗ ' + e.message)
+    }
+  }
+
   async function doClearLogs() {
     setBusy('clear')
     try {
-      await api.admin.clearLogs()
-      setMsg('✓ Detection log cleared')
+      await api.admin.clearLogs(clearType || null)
+      const label = LOG_TYPE_OPTIONS.find(t => t.value === clearType)?.label || 'All logs'
+      setMsg(`✓ ${label} cleared`)
       setConfirmClear(false)
       loadStats()
     } catch (e) {
@@ -426,124 +752,97 @@ function SystemTab() {
     }
   }
 
-  async function startCam() {
-    setBusy('cam')
-    try { await api.startCamera(0, parseFloat(threshold)); loadStats() } catch (e) { setMsg('✗ ' + e.message) }
-    setBusy('')
-  }
-  async function stopCam() {
-    setBusy('cam')
-    try { await api.stopCamera(); loadStats() } catch (e) { setMsg('✗ ' + e.message) }
-    setBusy('')
-  }
-
-  const sectionTitle = (label) => (
-    <div style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: 14, borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
-      // {label}
-    </div>
-  )
-
-  const infoRow = (label, val, valColor) => (
-    <div className="info-row" key={label}>
-      <span className="info-key">{label}</span>
-      <span className="info-val" style={valColor ? { color: valColor } : {}}>{val}</span>
-    </div>
-  )
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-      {msg && (
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: msg.startsWith('✓') ? 'var(--green)' : 'var(--red)', background: msg.startsWith('✓') ? 'var(--green-dim)' : 'rgba(255,32,32,0.1)', border: `1px solid ${msg.startsWith('✓') ? 'rgba(0,230,118,0.2)' : 'rgba(255,32,32,0.2)'}`, padding: '10px 16px', letterSpacing: '0.1em' }}>
-          {msg}
-        </div>
-      )}
+      <Msg text={msg} />
 
-      {/* ── System health ── */}
+      {/* Detection Mode */}
       <div className="panel">
-        {sectionTitle('System Health')}
-        {stats ? (
-          <>
-            {infoRow('Camera',          stats.camera_active ? 'LIVE' : 'OFFLINE', stats.camera_active ? 'var(--red)' : 'var(--text-dim)')}
-            {infoRow('Threat Level',    stats.current_threat || 'NOMINAL')}
-            {infoRow('Banned Faces',    stats.banned_count ?? '—')}
-            {infoRow('Total Detections', stats.total_detections ?? '—')}
-            {infoRow('Alerts / 24h',    stats.alerts_last_24h ?? '—', stats.alerts_last_24h > 0 ? 'var(--amber)' : undefined)}
-            {infoRow('Total Alerts',    stats.total_alerts ?? '—')}
-            {infoRow('Detection Model', 'buffalo_l')}
-            {infoRow('Match Algorithm', 'Cosine Similarity')}
-            {infoRow('Storage',         'SQLite')}
-          </>
-        ) : (
-          <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-dim)' }}>Loading...</div>
-        )}
-        <button className="btn btn-ghost" onClick={loadStats} style={{ marginTop: 12, fontSize: 11 }}>↺ Refresh</button>
-      </div>
-
-      {/* ── Camera controls ── */}
-      <div className="panel">
-        {sectionTitle('Camera Controls')}
-        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 16 }}>
-          <div>
-            <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>
-              Match Threshold — {parseFloat(threshold).toFixed(2)}
-            </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <input
-                type="range" min="0.1" max="1.0" step="0.01"
-                value={threshold}
-                onChange={e => setThreshold(e.target.value)}
-                style={{ width: 180, accentColor: 'var(--red)' }}
-              />
-              <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text-mid)', minWidth: 36 }}>
-                {parseFloat(threshold).toFixed(2)}
-              </span>
-              <button className="btn btn-ghost" onClick={applyThreshold} style={{ fontSize: 11 }}>Apply</button>
-            </div>
-            {threshMsg && <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: threshMsg.startsWith('✓') ? 'var(--green)' : 'var(--red)', marginTop: 6 }}>{threshMsg}</div>}
+        <SectionTitle>Detection Mode</SectionTitle>
+        {modeMsg && (
+          <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: modeMsg.startsWith('✓') ? 'var(--green)' : 'var(--red)', marginBottom: 12 }}>
+            {modeMsg}
           </div>
-        </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button
-            className="btn btn-primary"
-            onClick={startCam}
-            disabled={busy === 'cam' || stats?.camera_active}
-            style={{ fontSize: 11 }}
-          >
-            ▶ Start Camera
-          </button>
-          <button
-            className="btn btn-ghost"
-            onClick={stopCam}
-            disabled={busy === 'cam' || !stats?.camera_active}
-            style={{ fontSize: 11 }}
-          >
-            ■ Stop Camera
-          </button>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {MODES.map(m => (
+            <div
+              key={m.value}
+              onClick={() => applyMode(m.value)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px',
+                background: mode === m.value ? 'var(--surface2)' : 'transparent',
+                border: `1px solid ${mode === m.value ? 'var(--red)' : 'var(--border)'}`,
+                cursor: 'pointer', transition: 'all 0.15s',
+              }}
+            >
+              <div style={{
+                width: 12, height: 12, borderRadius: '50%', flexShrink: 0,
+                border: `2px solid ${mode === m.value ? 'var(--red)' : 'var(--border)'}`,
+                background: mode === m.value ? 'var(--red)' : 'transparent',
+              }} />
+              <div>
+                <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text)', letterSpacing: '0.1em' }}>{m.label}</div>
+                <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', marginTop: 2 }}>{m.desc}</div>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* ── Danger zone ── */}
+      {/* Match Threshold */}
+      <div className="panel">
+        <SectionTitle>Match Threshold</SectionTitle>
+        <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', marginBottom: 14, lineHeight: 1.7 }}>
+          Minimum cosine similarity to register as a face match. Lower = more sensitive. Higher = more strict.
+          &nbsp;Current: <span style={{ color: 'var(--text-mid)' }}>{parseFloat(threshold).toFixed(2)}</span>
+        </div>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            type="range" min="0.1" max="1.0" step="0.01"
+            value={threshold}
+            onChange={e => setThreshold(e.target.value)}
+            style={{ width: 220, accentColor: 'var(--red)' }}
+          />
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--text-mid)', minWidth: 36 }}>
+            {parseFloat(threshold).toFixed(2)}
+          </span>
+          <button className="btn btn-ghost" onClick={applyThreshold} style={{ fontSize: 11 }}>Apply</button>
+        </div>
+        {threshMsg && (
+          <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: threshMsg.startsWith('✓') ? 'var(--green)' : 'var(--red)', marginTop: 8 }}>
+            {threshMsg}
+          </div>
+        )}
+      </div>
+
+      {/* Danger zone */}
       <div className="panel" style={{ border: '1px solid rgba(255,32,32,0.25)' }}>
-        {sectionTitle('Danger Zone')}
+        <SectionTitle>Danger Zone</SectionTitle>
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
 
           {/* Clear logs */}
-          <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ flex: 1, minWidth: 220 }}>
             <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-mid)', marginBottom: 6, letterSpacing: '0.08em' }}>
               Clear Detection Log
             </div>
             <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', marginBottom: 10, lineHeight: 1.6 }}>
-              Permanently deletes all detection records from the database. Snapshots are unaffected.
+              Permanently delete detection records. Snapshots on disk are unaffected.
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <select value={clearType} onChange={e => setClearType(e.target.value)} style={{ width: '100%', fontSize: 11 }}>
+                {LOG_TYPE_OPTIONS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
             </div>
             {!confirmClear ? (
               <button className="btn btn-ghost" onClick={() => setConfirmClear(true)} style={{ fontSize: 11, borderColor: 'rgba(255,32,32,0.3)', color: 'var(--red)' }}>
-                Clear Log
+                Clear Logs
               </button>
             ) : (
               <div style={{ display: 'flex', gap: 8 }}>
                 <button className="btn btn-primary" onClick={doClearLogs} disabled={busy === 'clear'} style={{ fontSize: 11, background: 'var(--red)' }}>
-                  {busy === 'clear' ? '...' : 'Confirm Clear'}
+                  {busy === 'clear' ? '...' : 'Confirm'}
                 </button>
                 <button className="btn btn-ghost" onClick={() => setConfirmClear(false)} style={{ fontSize: 11 }}>Cancel</button>
               </div>
@@ -551,12 +850,12 @@ function SystemTab() {
           </div>
 
           {/* Wipe snapshots */}
-          <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ flex: 1, minWidth: 220 }}>
             <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-mid)', marginBottom: 6, letterSpacing: '0.08em' }}>
               Wipe All Snapshots
             </div>
             <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', marginBottom: 10, lineHeight: 1.6 }}>
-              Permanently deletes all alert images from disk. Log records remain but will show no evidence.
+              Delete all alert images from disk. Log records remain but will show no evidence images.
             </div>
             {!confirmWipe ? (
               <button className="btn btn-ghost" onClick={() => setConfirmWipe(true)} style={{ fontSize: 11, borderColor: 'rgba(255,32,32,0.3)', color: 'var(--red)' }}>
@@ -565,7 +864,7 @@ function SystemTab() {
             ) : (
               <div style={{ display: 'flex', gap: 8 }}>
                 <button className="btn btn-primary" onClick={doWipeSnapshots} disabled={busy === 'wipe'} style={{ fontSize: 11, background: 'var(--red)' }}>
-                  {busy === 'wipe' ? '...' : 'Confirm Wipe'}
+                  {busy === 'wipe' ? '...' : 'Confirm'}
                 </button>
                 <button className="btn btn-ghost" onClick={() => setConfirmWipe(false)} style={{ fontSize: 11 }}>Cancel</button>
               </div>
@@ -577,22 +876,22 @@ function SystemTab() {
   )
 }
 
-// ── Account tab ───────────────────────────────────────────────
+// ── Account tab ────────────────────────────────────────────────
 
 function AccountTab({ onLogout }) {
-  const [newPw,    setNewPw]    = useState('')
-  const [confirm,  setConfirm]  = useState('')
-  const [msg,      setMsg]      = useState('')
-  const [busy,     setBusy]     = useState(false)
+  const [newPw,   setNewPw]   = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [msg,     setMsg]     = useState('')
+  const [busy,    setBusy]    = useState(false)
 
   async function handleChange(e) {
     e.preventDefault()
-    if (newPw.length < 4) { setMsg('✗ Password must be at least 4 characters'); return }
+    if (newPw.length < 6) { setMsg('✗ Password must be at least 6 characters'); return }
     if (newPw !== confirm) { setMsg('✗ Passwords do not match'); return }
     setBusy(true)
     try {
       await api.admin.changePassword(newPw)
-      setMsg('✓ Password changed — you will be logged out')
+      setMsg('✓ Password changed — logging out')
       setNewPw('')
       setConfirm('')
       setTimeout(onLogout, 2000)
@@ -611,41 +910,25 @@ function AccountTab({ onLogout }) {
   return (
     <div style={{ maxWidth: 480 }}>
       <div className="panel" style={{ marginBottom: 16 }}>
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: 14, borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
-          // Admin Account
-        </div>
-
-        {msg && (
-          <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: msg.startsWith('✓') ? 'var(--green)' : 'var(--red)', background: msg.startsWith('✓') ? 'var(--green-dim)' : 'rgba(255,32,32,0.1)', border: `1px solid ${msg.startsWith('✓') ? 'rgba(0,230,118,0.2)' : 'rgba(255,32,32,0.2)'}`, padding: '10px 16px', letterSpacing: '0.1em', marginBottom: 16 }}>
-            {msg}
-          </div>
-        )}
-
+        <SectionTitle>Change Password</SectionTitle>
+        <Msg text={msg} />
         <form onSubmit={handleChange} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.16em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
-              New Password
-            </label>
+            <label style={{ ...mono9, display: 'block', marginBottom: 6 }}>New Password</label>
             <input
-              type="password"
-              value={newPw}
+              type="password" value={newPw}
               onChange={e => setNewPw(e.target.value)}
-              placeholder="Min. 4 characters"
-              style={{ width: '100%' }}
-              required
+              placeholder="Min. 6 characters"
+              style={{ width: '100%' }} required
             />
           </div>
           <div>
-            <label style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.16em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
-              Confirm Password
-            </label>
+            <label style={{ ...mono9, display: 'block', marginBottom: 6 }}>Confirm Password</label>
             <input
-              type="password"
-              value={confirm}
+              type="password" value={confirm}
               onChange={e => setConfirm(e.target.value)}
               placeholder="Repeat new password"
-              style={{ width: '100%' }}
-              required
+              style={{ width: '100%' }} required
             />
           </div>
           <button className="btn btn-primary" type="submit" disabled={busy} style={{ alignSelf: 'flex-start', fontSize: 12 }}>
@@ -655,11 +938,9 @@ function AccountTab({ onLogout }) {
       </div>
 
       <div className="panel" style={{ border: '1px solid rgba(255,32,32,0.2)' }}>
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: 12, borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
-          // Session
-        </div>
+        <SectionTitle>Session</SectionTitle>
         <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-dim)', marginBottom: 14, lineHeight: 1.7 }}>
-          Admin session is active. Sessions expire automatically after 8 hours or when you log out.
+          Admin session active. Sessions expire automatically after 8 hours or on logout.
         </div>
         <button className="btn btn-ghost" onClick={handleLogout} style={{ fontSize: 11, borderColor: 'rgba(255,32,32,0.3)', color: 'var(--red)' }}>
           Log Out
@@ -669,16 +950,107 @@ function AccountTab({ onLogout }) {
   )
 }
 
-// ── Admin panel (authenticated) ───────────────────────────────
+// ── Forced password change (first-login) ───────────────────────
+
+function ForcePasswordChange({ onDone, onLogout }) {
+  const [newPw,   setNewPw]   = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [msg,     setMsg]     = useState('')
+  const [busy,    setBusy]    = useState(false)
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    if (newPw.length < 6) { setMsg('✗ Password must be at least 6 characters'); return }
+    if (newPw !== confirm) { setMsg('✗ Passwords do not match'); return }
+    setBusy(true)
+    try {
+      await api.admin.changePassword(newPw)
+      setMsg('✓ Password set — entering admin panel')
+      setTimeout(onDone, 1500)
+    } catch (e) {
+      setMsg('✗ ' + e.message)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div>
+      <div className="page-header">
+        <div className="page-breadcrumb">GATEKEEP &gt; <span>Admin</span></div>
+        <div className="page-title">Set Admin Password</div>
+      </div>
+
+      <div style={{
+        maxWidth: 460, margin: '40px auto', padding: '32px 36px',
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        display: 'flex', flexDirection: 'column', gap: 0,
+      }}>
+        <div style={{
+          background: 'rgba(255,180,0,0.07)', border: '1px solid rgba(255,180,0,0.25)',
+          padding: '14px 18px', marginBottom: 28,
+          fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--amber)',
+          lineHeight: 1.8, letterSpacing: '0.04em',
+        }}>
+          ⚠ You are logged in with the default password. You must set a unique password before accessing the admin panel.
+        </div>
+
+        <Msg text={msg} />
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <label style={{ ...mono9, display: 'block', marginBottom: 6 }}>New Password</label>
+            <input
+              type="password" value={newPw}
+              onChange={e => setNewPw(e.target.value)}
+              placeholder="Min. 6 characters"
+              style={{ width: '100%' }}
+              autoFocus required
+            />
+          </div>
+          <div>
+            <label style={{ ...mono9, display: 'block', marginBottom: 6 }}>Confirm Password</label>
+            <input
+              type="password" value={confirm}
+              onChange={e => setConfirm(e.target.value)}
+              placeholder="Repeat new password"
+              style={{ width: '100%' }} required
+            />
+          </div>
+          <button
+            className="btn btn-primary" type="submit" disabled={busy}
+            style={{ fontSize: 13, padding: '12px', letterSpacing: '0.16em', marginTop: 4 }}
+          >
+            {busy ? 'Saving...' : 'Set Password & Continue'}
+          </button>
+        </form>
+
+        <button
+          onClick={onLogout}
+          style={{
+            marginTop: 18, background: 'none', border: 'none',
+            fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)',
+            cursor: 'pointer', letterSpacing: '0.12em', textAlign: 'center',
+          }}
+        >
+          Cancel — Log Out
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Admin panel (authenticated) ────────────────────────────────
 
 const TABS = [
-  { key: 'evidence', label: 'Evidence' },
-  { key: 'system',   label: 'System'   },
-  { key: 'account',  label: 'Account'  },
+  { key: 'overview',  label: 'Overview'  },
+  { key: 'watchlist', label: 'Watchlist' },
+  { key: 'evidence',  label: 'Evidence'  },
+  { key: 'system',    label: 'System'    },
+  { key: 'account',   label: 'Account'   },
 ]
 
 function AdminPanel({ onLogout }) {
-  const [tab, setTab] = useState('evidence')
+  const [tab, setTab] = useState('overview')
 
   return (
     <div>
@@ -687,25 +1059,18 @@ function AdminPanel({ onLogout }) {
         <div className="page-title">Admin Panel</div>
       </div>
 
-      {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 2, marginBottom: 20, borderBottom: '1px solid var(--border)' }}>
+      <div style={{ display: 'flex', gap: 2, marginBottom: 20, borderBottom: '1px solid var(--border)', overflowX: 'auto' }}>
         {TABS.map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
             style={{
-              background: 'none',
-              border: 'none',
+              background: 'none', border: 'none',
               borderBottom: tab === t.key ? '2px solid var(--red)' : '2px solid transparent',
               color: tab === t.key ? 'var(--text)' : 'var(--text-dim)',
-              fontFamily: 'var(--mono)',
-              fontSize: 11,
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              padding: '10px 20px',
-              cursor: 'pointer',
-              transition: 'color 0.15s',
-              marginBottom: -1,
+              fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase',
+              padding: '10px 20px', cursor: 'pointer', transition: 'color 0.15s',
+              marginBottom: -1, whiteSpace: 'nowrap',
             }}
           >
             {t.label}
@@ -713,15 +1078,16 @@ function AdminPanel({ onLogout }) {
         ))}
       </div>
 
-      {/* Tab content */}
-      {tab === 'evidence' && <EvidenceTab />}
-      {tab === 'system'   && <SystemTab />}
-      {tab === 'account'  && <AccountTab onLogout={onLogout} />}
+      {tab === 'overview'  && <OverviewTab />}
+      {tab === 'watchlist' && <WatchlistTab />}
+      {tab === 'evidence'  && <EvidenceTab />}
+      {tab === 'system'    && <SystemTab />}
+      {tab === 'account'   && <AccountTab onLogout={onLogout} />}
     </div>
   )
 }
 
-// ── Login gate ────────────────────────────────────────────────
+// ── Login gate ─────────────────────────────────────────────────
 
 function AdminLogin({ onLogin }) {
   const [password, setPassword] = useState('')
@@ -733,8 +1099,8 @@ function AdminLogin({ onLogin }) {
     setBusy(true)
     setError('')
     try {
-      await api.admin.login(password)
-      onLogin()
+      const data = await api.admin.login(password)
+      onLogin(data)   // pass full response (includes is_default_password)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -755,10 +1121,8 @@ function AdminLogin({ onLogin }) {
         display: 'flex', flexDirection: 'column', gap: 20,
       }}>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontFamily: 'var(--mono)', fontSize: 28, color: 'var(--red)', marginBottom: 8, letterSpacing: '0.05em' }}>⬡</div>
-          <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.3em', textTransform: 'uppercase' }}>
-            Restricted Access — Admin Only
-          </div>
+          <div style={{ fontFamily: 'var(--mono)', fontSize: 28, color: 'var(--red)', marginBottom: 8 }}>⬡</div>
+          <div style={{ ...mono9, letterSpacing: '0.3em' }}>Restricted Access — Admin Only</div>
         </div>
 
         {error && (
@@ -769,17 +1133,13 @@ function AdminLogin({ onLogin }) {
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.16em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
-              Admin Password
-            </label>
+            <label style={{ ...mono9, display: 'block', marginBottom: 6 }}>Admin Password</label>
             <input
-              type="password"
-              value={password}
+              type="password" value={password}
               onChange={e => setPassword(e.target.value)}
               placeholder="Enter admin password"
               style={{ width: '100%' }}
-              autoFocus
-              required
+              autoFocus required
             />
           </div>
           <button className="btn btn-primary" type="submit" disabled={busy} style={{ fontSize: 13, padding: '12px', letterSpacing: '0.18em' }}>
@@ -795,10 +1155,24 @@ function AdminLogin({ onLogin }) {
   )
 }
 
-// ── Default export ────────────────────────────────────────────
+// ── Root export ────────────────────────────────────────────────
 
 export default function Admin() {
-  const [authed, setAuthed] = useState(api.admin.isLoggedIn())
-  if (!authed) return <AdminLogin onLogin={() => setAuthed(true)} />
-  return <AdminPanel onLogout={() => setAuthed(false)} />
+  const [authed,   setAuthed]   = useState(api.admin.isLoggedIn())
+  const [forceSet, setForceSet] = useState(false)
+
+  function handleLogin(data) {
+    setAuthed(true)
+    if (data?.is_default_password) setForceSet(true)
+  }
+
+  async function handleLogout() {
+    try { await api.admin.logout() } catch {}
+    setAuthed(false)
+    setForceSet(false)
+  }
+
+  if (!authed)  return <AdminLogin onLogin={handleLogin} />
+  if (forceSet) return <ForcePasswordChange onDone={() => setForceSet(false)} onLogout={handleLogout} />
+  return <AdminPanel onLogout={handleLogout} />
 }
