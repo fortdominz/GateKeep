@@ -3,6 +3,7 @@ GateKeep — Face matching engine.
 Handles: embedding extraction (InsightFace) + cosine similarity against banned list.
 """
 
+import os
 import numpy as np
 
 # InsightFace lazy-loaded so the module can be imported even before install
@@ -14,7 +15,10 @@ def _get_app():
     if _app is None:
         import insightface
         from insightface.app import FaceAnalysis
-        _app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+        # buffalo_sc: MobileNet-based, ~100MB RAM — fits Render free tier (512MB)
+        # buffalo_l:  ResNet-based,    ~400MB RAM — needs paid tier or HuggingFace Spaces
+        model_name = os.environ.get("INSIGHTFACE_MODEL", "buffalo_sc")
+        _app = FaceAnalysis(name=model_name, providers=["CPUExecutionProvider"])
         _app.prepare(ctx_id=0, det_size=(320, 320))
     return _app
 
